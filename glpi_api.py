@@ -478,8 +478,86 @@ class GLPI:
             400: _glpi_error,
             401: _glpi_error
         }.get(response.status_code, _unknown_error)(response)
+    @_catch_errors
+    def get_all_items_with_status_code(self, itemtype, **kwargs):
+        """`API documentation
+        <https://github.com/glpi-project/glpi/blob/master/apirest.md#get-all-items>`__
+
+        Return a collection of rows of the ``itemtype``. ``kwargs`` contains
+        additional parameters allowed by the API. We also return the status codes of
+        response received. This can help in debugging if the HTTP response codes are
+        needed to be logged.
+
+        .. code::
+
+            # Retrieve (non deleted) computers.
+            >>> glpi.get_all_items_with_status_code('Computer')
+            [{'id': 1,
+             'entities_id': 0,
+             'name': 'test',
+            ...
+            # Retrieve deleted computers.
+            >>> glpi.get_all_items_with_status_code('Computer', is_deleted=True)
+            []
+            # Using searchText.
+            >>> glpi.get_all_items_with_status_code('Computer', searchText={'name':'server'})
+            []
+        """
+        kwargs.update(self._add_searchtext(kwargs.pop('searchText', {})))
+        response = self.session.get(self._set_method(itemtype),
+                                    params=_convert_bools(kwargs))
+        return(response.status_code, response.json())
 
     @_catch_errors
+    def get_all_with_page_check(self, item_type, page_delta, max_range, **kwargs):
+        """`API documentation
+        <https://github.com/glpi-project/glpi/blob/master/apirest.md#get-all-items>`__
+
+        Return a collection of rows of the ``itemtype``. ``kwargs`` contains
+        additional parameters allowed by the API. We can also define the ``page_delta``
+        which is the difference between the starting range of the item and the number
+        of items to be fetched in a single request. ``max_range`` is the maximum number
+        of items to be retreived. This is achieved by using the ``range`` header.
+
+        .. code::
+
+            # Retrieve (non deleted) computers.
+            >>> glpi.get_all_with_page_check('Computer',page_delta=100, max_range=100000)
+            [{'id': 1,
+             'entities_id': 0,
+             'name': 'test',
+            ...
+            # Retrieve deleted computers.
+            >>> glpi.get_all_with_page_check('Computer',page_delta=100, max_range=100000, is_deleted=True)
+            []
+            # Using searchText.
+            >>> glpi.get_all_with_page_check('Computer', page_delta=100, max_range=100000, searchText={'name':'server'})
+            []
+        """        
+        range_start = 0
+        range_end = page_delta
+        range_header = f"{range_start}-{range_end}"
+        status_return_code = 0
+        item_data=[]
+        #pagination check start
+        while 400 != status_return_code:
+            kwargs['range'] = range_header
+            status_return_code, item_page_data = self.get_all_items_with_status_code(item_type, **kwargs)
+
+            if(status_return_code == 206 or status_return_code==200):
+                item_data=item_data+item_page_data
+            if status_return_code == 400:
+                break
+
+            range_start = range_end + 1
+            range_end = range_end + page_delta
+            range_header = f"{range_start}-{range_end}"
+            if range_end > max_range:
+                break
+
+        return item_data
+    @_catch_errors
+    
     def get_sub_items(self, itemtype, item_id, sub_itemtype, **kwargs):
         """`API documentation
         <https://github.com/glpi-project/glpi/blob/master/apirest.md#get-sub-items>`__
